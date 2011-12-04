@@ -5,8 +5,16 @@ import os.path
 import sys
 from collections import defaultdict
 
+class worddict(defaultdict):
+    #TODO: Figure this subclassing out...
+    """docstring for worddict"""
+    def __getitem__(self, key):
+        x = super(worddict, self).__getitem__("".join(sorted(key)))
+        return x
+        
 def lookup(word, wl):
     """Stupid hack. Lookup subclassing defaultdict and overriding __getitem__"""
+    print wl["act"]
     try:
         return wl["".join(sorted(word))]
     except KeyError:
@@ -16,9 +24,17 @@ def prep_wordlist(wl_file):
     wl = worddict(list)
     for line in wl_file:
         line = line.strip()
-        wl["".join(sorted(line))].append(line)
+        if len(line) > 3:
+            wl["".join(sorted(line))].append(line)
+            if len( wl["".join(sorted(line))]) > 1:
+                print wl["".join(sorted(line))]
     return wl
 
+def sliceup(word, min_len = 4, max_len = 29):
+    for start in range(len(word) - min_len):
+        for stop in range(start + min_len, min(len(word) + 1, start + max_len)):
+            yield(word[start:stop])
+    
 def main():
     """A humble attempt to solve Mopub's PrettyPrettyPrinting developer
     challenge: http://www.mopub.com/about/coding-challenges/"""
@@ -34,9 +50,8 @@ def main():
         fh = open(args.string, 'r') 
         args.string = fh.read()
     
-    wl = prep_wordlist(args.dictionary)
-    for item in wl["cat"]:
-        print(item)
+    wl = prep_wordlist(open(args.dictionary))
+    print wl["act"]
 
 if __name__ == "__main__":
     main()
