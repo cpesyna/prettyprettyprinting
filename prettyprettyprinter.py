@@ -3,6 +3,8 @@
 import argparse
 import os.path
 from collections import defaultdict
+from itertools import product
+from sys import stderr, exit
 
 def key_wrangler(word):
     return "".join(sorted(word.strip()))
@@ -25,14 +27,12 @@ class wrangled_dict(dict):
 
         self.key_wrangler = key_wrangler
         self.val_wrangler = val_wrangler
+
         for item in s:
             self.put(item)
 
     def __getitem__(self, key):
         return super(wrangled_dict, self).__getitem__(self.key_wrangler(key))
-
-    def __putitem__(self, key):
-        super(wrangled_dict, self).__putitem__(self.key_wrangler(key), self.val_wrangler(key))
 
     def put(self, word):
         self[self.key_wrangler(word)] = self.val_wrangler(word)
@@ -43,24 +43,22 @@ class wrangled_dict(dict):
         except KeyError:
             return "-" * len(word)
 
-class measure(dict):
-    """docstring for wrangled_dict"""
+class Measure(dict):
+    # TODO: Make safer for broad range of input
+    """docstring for measure"""
     def __init__(self):
-        super(measure, self).__init__()
+        super(Measure, self).__init__()
 
     def __getitem__(self, key):
         try:
-            return super(measure, self).__getitem__(key)
+            return super(Measure, self).__getitem__(key)
         except KeyError:
-            return key[1] - key[0]
-
-
-def slicepoints(total_length, min_length = 4, max_length = 29):
-    ## Check out if there's a saner way to write this...
-    for start in range(total_length - min_length + 1):
-        top = min(total_length + 1, start + max_length)
-        for stop in range(start + min_length, top):
-            yield start, stop
+            if isinstance(key, tuple):
+                return key[1] - key[0]
+            elif isinstance(key, int):
+                return key
+            else:
+                raise ValueError
 
 def process_args():
     parser = argparse.ArgumentParser(
@@ -69,62 +67,60 @@ def process_args():
         dest='dictionary', required=0, help='path to dictionary file')
     parser.add_argument('-s', type=str, dest='string', required=1,
         help='string to use or path to string file')
+    parser.add_argument('-min_len', type=int, dest='min_len', default = 4,
+        required=0, help='Define minimum acceptable word length')
+    parser.add_argument('-max_len', type=int, dest='max_len', default = None,
+        required=0, help='Define minimum acceptable word length')
     return parser.parse_args()
-
-def get_limits(wordlist):
-    longest = None
-    shortest = None
-    for key in wordlist:
-        keylen = len(key)
-        shortest = keylen if not shortest else min(shortest, keylen)
-        longest = keylen if not longest else max(longest, keylen)
-    return shortest, longest 
 
 def main():
     """A humble attempt to solve Mopub's PrettyPrettyPrinting developer
     challenge: http://www.mopub.com/about/coding-challenges/"""
 
-    MOPUB_MINLENGTH = 4
     args = process_args()
 
     if(os.path.exists(args.string)):
-        fh = open(args.string, 'r') 
+        try:
+            fh = open(args.string, 'r') 
+        except:
+            print >> stderr, "{0}: Supplied string file cannot be opened".format(args.string)
         args.string = fh.read().strip()
+    strlen = len(args.string)
     
     # TODO: Edit args to perceive args.dictionary as a file
-    args.dictionary = open(args.dictionary)
-    wl = wrangled_dict(args.dictionary, key_wrangler, build_val_wrangler(MOPUB_MINLENGTH))
+    try:
+        args.dictionary = open(args.dictionary)
+    except IOError:
+        print >> stderr, "{0}: Supplied dictonary file cannot be opened".format(args.dictionary)
+        exit(1)
+        
+    wl = wrangled_dict(args.dictionary, key_wrangler, build_val_wrangler(args.min_len))
     args.dictionary.close()
 
-    # Could do something cleaner to deal with Mopub defined min_length
-    min_len, max_len = get_limits(wl)
+    if not args.max_len:
+        args.max_len = len(max(wl, key = len))
 
-    # Come up with a cleaner way of expressing "measure"
-    # maybe just do try/except
-    delta = measure()
-    strlen = len(args.string)
-    for start, stop in slicepoints(strlen, MOPUB_MINLENGTH, max_len):
-        result = wl.get(args.string[start:stop])
+    diff = Measure()
+    for start, offset in product(range(strlen), range(args.min_len, args.max_len)):
+        result = wl.get(args.string[start:start + offset])
+        #Assumes no hyphenated words...is this okay?
         if '-' not in result:
-            delta[start, stop] = 0
+            diff[start, start + offset] = 0
 
-    # Tidy up Dijkstra
-    dist = defaultdict(lambda: strlen + 1)
     prev = defaultdict(lambda: None)
 
-    dist[0] = 0
     # There ought to be a cleaner way to write this
     # TODO: Implement this based on a FibHeap
     Q = range(strlen + 1)
     while Q:
-        curr = min(Q, key = lambda x: dist[x])
+        curr = min(Q, key = lambda x: diff[x])
         Q.remove(curr)
         for node in Q:
             if node < curr:
                 continue
-            alt = dist[curr] + delta[curr, node]
-            if alt <= dist[node]:
-                dist[node] = alt
+            alt = diff[curr] + diff[curr, node]
+            if alt <= diff[node]:
+                diff[node] = alt
                 prev[node] = curr
     S = []
     curr = strlen
