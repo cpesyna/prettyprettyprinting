@@ -1,34 +1,38 @@
-#!/usr/bin/python2
+#!/usr/bin/python
 
 import argparse
-import os.path
 from collections import defaultdict
 from itertools import product
+from os import path
 from sys import stderr, exit
+
+# TODO: Work on exposing this and writing unit tests
 
 class WordMap(dict):
     """docstring for WordMap"""
     #TODO: Yeah...write that.
     def __init__(self, min_length, s = ()):
         super(WordMap, self).__init__()
-        
         if min_length < 0:
-            raise ValueError, "Cannot allow negative min_length"
-
+            raise ValueError("Cannot allow negative min_length")
+        
         self.min_length = min_length
-        for item in s:
-            self.put(item)
+        self.put_iterable(s)
 
     def __getitem__(self, key):
         return super(WordMap, self).__getitem__(self.__sanitize_key__(key))
 
     def __sanitize_key__(self, word):
-        return "".join(sorted(word.strip()))
+        return "".join(sorted(word))
 
     def put(self, word):
-        if len(word) < self.min_length:
-            return
-        self[self.__sanitize_key__(word)] = word
+        word = word.strip()
+        if len(word) >= self.min_length:
+            self[self.__sanitize_key__(word)] = word
+
+    def put_iterable(self, iterable):
+        for word in iterable:
+            self.put(word)
 
     def get(self, word):
         try:
@@ -36,23 +40,29 @@ class WordMap(dict):
         except KeyError:
             return None
 
+
 class Measure(dict):
     # TODO: Make safer for broad range of input
     """docstring for measure"""
     def __init__(self, base):
         super(Measure, self).__init__()
-        self.base = base
+        if isinstance(base, int):
+            self.base = base
+        else:
+            raise TypeError("Cannot accept base of type {}".format(type(int)))
 
     def __getitem__(self, key):
         try:
             return super(Measure, self).__getitem__(key)
         except KeyError:
             if isinstance(key, tuple):
+                if len(key) != 2:
+                    raise ValueError("Invalid key passed to Measure: {}".format(key))
                 return abs(key[1] - key[0])
             elif isinstance(key, int):
                 return abs(self.base - key)
             else:
-                raise TypeError
+                raise TypeError("Invalid key passed to Measure: {}".format(key))
 
 def process_args():
     parser = argparse.ArgumentParser(
@@ -67,26 +77,45 @@ def process_args():
         required=0, help='Define minimum acceptable word length')
     return parser.parse_args()
 
+def dijkstra(neighbors, dist, target = None):
+    #TODO: Still ought to be using a heap
+    Q = set(neighbors.keys())
+    final = max(Q)
+    prev = defaultdict(lambda: None)
+    while Q:
+        curr = min(Q, key = lambda x: dist[x])
+        Q.remove(curr)
+        if curr == target:
+            break
+        for node in neighbors[curr].intersection(Q):
+            alt = dist[curr] + dist[curr, node]
+            if alt < dist[node]:
+                dist[node] = alt
+                prev[node] = curr
+    curr = 0
+    pointers = [curr]
+    while prev[curr] != None:
+        curr = prev[curr]
+        pointers.append(curr)
+    if pointers[-1] != final:
+        pointers.append(final)
+    return pointers
+
 def main():
     """A humble attempt to solve Mopub's PrettyPrettyPrinting developer
     challenge: http://www.mopub.com/about/coding-challenges/"""
 
     args = process_args()
 
-    if(os.path.exists(args.string)):
-        try:
-            fh = open(args.string, 'r') 
-        except:
-            print >> stderr, "{}: Supplied string file cannot be opened".format(args.string)
+    if(path.exists(args.string)):
+        fh = open(args.string, 'r') 
         args.string = fh.read().strip()
+        fh.close()
     strlen = len(args.string)
     
     # TODO: Edit args to perceive args.dictionary as a file
-    try:
-        args.dictionary = open(args.dictionary)
-    except IOError:
-        print >> stderr, "{}: Supplied dictionary file cannot be opened".format(args.dictionary)
-        exit(1)
+    # TODO: Mention something about filetype...
+    args.dictionary = open(args.dictionary, encoding = "ISO-8859-1")
         
     wl = WordMap(args.min_len, args.dictionary)
     args.dictionary.close()
@@ -101,39 +130,16 @@ def main():
             # We will be iterating backwards over our string
             diff[start + offset, start] = 0
 
-    prev = defaultdict(lambda: None)
-
-    # TODO: Implement this based on a FibHeap
-    # Dijkstra's algorithm, run starting from the last character in the test
-    # string.
-    Q = range(strlen + 1)
     diff[strlen] = 0
-    while Q:
-        curr = min(Q, key = lambda x: diff[x])
-        Q.remove(curr)
-        if curr == 0:
-            break
-        for node in Q:
-            if node > curr:
-                continue
-            alt = diff[curr] + diff[curr, node]
-            if alt <= diff[node]:
-                diff[node] = alt
-                prev[node] = curr
-    S = []
-    curr = 0
-    while prev[curr] != None:
-        S.append(curr)
-        curr = prev[curr]
-    # Even if S is of the form [...,strlen] to begin with, this is unconditionally
-    # safe, and at worst adds one iteration to the following loop
-    S.append(strlen)
+    neighbors = {index:set(range(max(0, index - args.max_len), index))
+                for index in range(strlen + 1)}
+    pointers = dijkstra(neighbors, diff, 0)
 
     solution = []
-    for start, stop in zip(S, S[1:]):
+    for start, stop in zip(pointers, pointers[1:]):
         word = wl.get(args.string[start:stop])
         if word:
-            solution.append(word.strip().capitalize())
+            solution.append(word.capitalize())
         else:
             solution.append("-" * (stop - start))
     print("".join(solution))
