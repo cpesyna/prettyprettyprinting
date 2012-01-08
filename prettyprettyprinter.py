@@ -6,57 +6,51 @@ from collections import defaultdict
 from itertools import product
 from sys import stderr, exit
 
-def key_wrangler(word):
-    return "".join(sorted(word.strip()))
-
-def build_val_wrangler(minimum_length):
-    def val_wrangler(word):
-        sanitized = word.strip().capitalize()
-        l = len(sanitized)
-        if l < minimum_length:
-            return "-" * l
-        else:
-            return sanitized
-    return val_wrangler
-        
-class wrangled_dict(dict):
-    """docstring for wrangled_dict"""
+class WordMap(dict):
+    """docstring for WordMap"""
     #TODO: Yeah...write that.
-    def __init__(self, s = (), key_wrangler = lambda x:x, val_wrangler = lambda x:x):
-        super(wrangled_dict, self).__init__()
+    def __init__(self, min_length, s = ()):
+        super(WordMap, self).__init__()
+        
+        if min_length < 0:
+            raise ValueError, "Cannot allow negative min_length"
 
-        self.key_wrangler = key_wrangler
-        self.val_wrangler = val_wrangler
-
+        self.min_length = min_length
         for item in s:
             self.put(item)
 
     def __getitem__(self, key):
-        return super(wrangled_dict, self).__getitem__(self.key_wrangler(key))
+        return super(WordMap, self).__getitem__(self.__sanitize_key__(key))
+
+    def __sanitize_key__(self, word):
+        return "".join(sorted(word.strip()))
 
     def put(self, word):
-        self[self.key_wrangler(word)] = self.val_wrangler(word)
+        if len(word) < self.min_length:
+            return
+        self[self.__sanitize_key__(word)] = word
 
     def get(self, word):
         try:
             return self[word]
         except KeyError:
-            return "-" * len(word)
+            return None
 
 class Measure(dict):
     # TODO: Make safer for broad range of input
     """docstring for measure"""
-    def __init__(self):
+    def __init__(self, base):
         super(Measure, self).__init__()
+        self.base = base
 
     def __getitem__(self, key):
         try:
             return super(Measure, self).__getitem__(key)
         except KeyError:
             if isinstance(key, tuple):
-                return key[1] - key[0]
+                return abs(key[1] - key[0])
             elif isinstance(key, int):
-                return key
+                return abs(self.base - key)
             else:
                 raise TypeError
 
@@ -83,7 +77,7 @@ def main():
         try:
             fh = open(args.string, 'r') 
         except:
-            print >> stderr, "{0}: Supplied string file cannot be opened".format(args.string)
+            print >> stderr, "{}: Supplied string file cannot be opened".format(args.string)
         args.string = fh.read().strip()
     strlen = len(args.string)
     
@@ -91,47 +85,58 @@ def main():
     try:
         args.dictionary = open(args.dictionary)
     except IOError:
-        print >> stderr, "{0}: Supplied dictonary file cannot be opened".format(args.dictionary)
+        print >> stderr, "{}: Supplied dictionary file cannot be opened".format(args.dictionary)
         exit(1)
         
-    wl = wrangled_dict(args.dictionary, key_wrangler, build_val_wrangler(args.min_len))
+    wl = WordMap(args.min_len, args.dictionary)
     args.dictionary.close()
 
     if not args.max_len:
         args.max_len = len(max(wl, key = len))
 
-    diff = Measure()
+    diff = Measure(strlen)
     for start, offset in product(range(strlen), range(args.min_len, args.max_len)):
         result = wl.get(args.string[start:start + offset])
-        #Assumes no hyphenated words...is this okay?
-        if '-' not in result:
-            diff[start, start + offset] = 0
+        if result:
+            # We will be iterating backwards over our string
+            diff[start + offset, start] = 0
 
     prev = defaultdict(lambda: None)
 
-    # There ought to be a cleaner way to write this
     # TODO: Implement this based on a FibHeap
+    # Dijkstra's algorithm, run starting from the last character in the test
+    # string.
     Q = range(strlen + 1)
+    diff[strlen] = 0
     while Q:
         curr = min(Q, key = lambda x: diff[x])
         Q.remove(curr)
+        if curr == 0:
+            break
         for node in Q:
-            if node < curr:
+            if node > curr:
                 continue
             alt = diff[curr] + diff[curr, node]
             if alt <= diff[node]:
                 diff[node] = alt
                 prev[node] = curr
     S = []
-    curr = strlen
+    curr = 0
     while prev[curr] != None:
-        S.insert(0, curr)
+        S.append(curr)
         curr = prev[curr]
-    # Even if S is of the form [0, ...] to begin with, this is unconditionally
-    # safe
-    S.insert(0, 0)
+    # Even if S is of the form [...,strlen] to begin with, this is unconditionally
+    # safe, and at worst adds one iteration to the following loop
+    S.append(strlen)
 
-    print("".join([wl.get(args.string[i:j]) for i, j in zip(S[:-1], S[1:])]))
+    solution = []
+    for start, stop in zip(S, S[1:]):
+        word = wl.get(args.string[start:stop])
+        if word:
+            solution.append(word.strip().capitalize())
+        else:
+            solution.append("-" * (stop - start))
+    print("".join(solution))
     
 if __name__ == "__main__":
     main()
