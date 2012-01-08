@@ -58,7 +58,7 @@ class Measure(dict):
             elif isinstance(key, int):
                 return key
             else:
-                raise ValueError
+                raise TypeError
 
 def process_args():
     parser = argparse.ArgumentParser(
